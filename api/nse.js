@@ -1,4 +1,4 @@
-// File: api/nse.js
+// api/nse.js
 import fetch from "node-fetch";
 
 export default async function handler(req, res) {
@@ -9,40 +9,68 @@ export default async function handler(req, res) {
   const apiUrl = `${base}/api/historicalOR/foCPV?from=${from}&to=${to}&instrumentType=${instrumentType}&symbol=${symbol}&optionType=${optionType}`;
 
   try {
-    // 1️⃣ Initial fetch to get cookies
+    // 1️⃣ Step 1: Get cookies and session headers
     const init = await fetch(base, {
       headers: {
-        "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0 Safari/537.36",
+        "user-agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0 Safari/537.36",
         "accept-language": "en-US,en;q=0.9",
+        "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+        "cache-control": "no-cache",
       },
     });
 
-    const cookie = init.headers.get("set-cookie");
+    const cookies = init.headers.get("set-cookie");
 
-    // 2️⃣ Now fetch actual data with proper headers
-    const response = await fetch(apiUrl, {
+    // 2️⃣ Step 2: Call the real API with cookies + realistic headers
+    const apiResponse = await fetch(apiUrl, {
       headers: {
-        "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0 Safari/537.36",
+        "user-agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0 Safari/537.36",
         "accept": "application/json, text/plain, */*",
         "accept-language": "en-US,en;q=0.9",
-        "referer": base,
-        "cookie": cookie,
+        "referer": base + "/",
+        "cookie": cookies,
+        "x-requested-with": "XMLHttpRequest",
+        "pragma": "no-cache",
+        "cache-control": "no-cache",
+        "sec-fetch-site": "same-origin",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-dest": "empty",
       },
     });
 
-    const text = await response.text();
+    const text = await apiResponse.text();
 
-    // 3️⃣ NSE sometimes returns HTML on first try — retry once
+    // 3️⃣ Retry logic (if first call blocked)
     if (text.startsWith("<")) {
-      console.warn("⚠️ NSE returned HTML, retrying...");
-      await new Promise((r) => setTimeout(r, 1000));
-      return handler(req, res);
+      console.warn("⚠️ NSE returned HTML, retrying with delay...");
+      await new Promise((r) => setTimeout(r, 1200));
+
+      const retryResponse = await fetch(apiUrl, {
+        headers: {
+          "user-agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0 Safari/537.36",
+          "accept": "application/json, text/plain, */*",
+          "referer": base + "/",
+          "cookie": cookies,
+          "x-requested-with": "XMLHttpRequest",
+        },
+      });
+
+      const retryText = await retryResponse.text();
+      if (retryText.startsWith("<")) {
+        throw new Error("NSE still returned HTML page (blocked).");
+      }
+      const retryJson = JSON.parse(retryText);
+      return res.status(200).json(retryJson);
     }
 
-    const data = JSON.parse(text);
-    return res.status(200).json(data);
+    // 4️⃣ Success
+    const json = JSON.parse(text);
+    res.status(200).json(json);
   } catch (err) {
     console.error("Error fetching NSE data:", err);
-    return res.status(500).json({ error: err.message });
+    res.status(500).json({ error: err.message });
   }
 }
