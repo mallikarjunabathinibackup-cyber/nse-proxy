@@ -1,10 +1,9 @@
-// /api/nse.js
 import fetch from "node-fetch";
 import zlib from "zlib";
 
 export const config = {
   runtime: "nodejs20",
-  maxDuration: 60 // allow up to 60 s
+  maxDuration: 60
 };
 
 export default async function handler(req, res) {
@@ -13,16 +12,16 @@ export default async function handler(req, res) {
   const apiUrl = `${base}/api/historicalOR/foCPV?from=${from}&to=${to}&instrumentType=OPTIDX&symbol=${symbol}&optionType=${optionType}`;
 
   try {
-    // get fresh cookies
-    const home = await fetch(base, {
+    // Get cookies
+    const homeRes = await fetch(base, {
       headers: {
         "user-agent":
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0 Safari/537.36"
       }
     });
-    const cookies = home.headers.get("set-cookie");
+    const cookies = homeRes.headers.get("set-cookie");
 
-    // main request (disable automatic compression)
+    // Fetch with manual decompression
     const resp = await fetch(apiUrl, {
       headers: {
         "user-agent":
@@ -32,18 +31,17 @@ export default async function handler(req, res) {
         accept: "application/json",
         "accept-encoding": "gzip,deflate,br"
       },
-      compress: false // let us manually handle gzip
+      compress: false
     });
 
     const buffer = await resp.arrayBuffer();
-    let text;
     const enc = resp.headers.get("content-encoding");
-    if (enc === "gzip" || enc === "br") {
-      const buf = Buffer.from(buffer);
-      text =
-        enc === "gzip"
-          ? zlib.gunzipSync(buf).toString("utf-8")
-          : zlib.brotliDecompressSync(buf).toString("utf-8");
+    let text;
+
+    if (enc === "gzip") {
+      text = zlib.gunzipSync(Buffer.from(buffer)).toString("utf-8");
+    } else if (enc === "br") {
+      text = zlib.brotliDecompressSync(Buffer.from(buffer)).toString("utf-8");
     } else {
       text = Buffer.from(buffer).toString("utf-8");
     }
